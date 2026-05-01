@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clarity Dashboard: Income Planning | Purposeful Profit Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --primary: #4b2a8e;
+    --primary-dark: #3d1e78;
+    --accent: #7857be;
+    --bg: #f5f3fb;
+    --bg-light: #faf9fd;
+    --border: #e4ddf4;
+    --muted: #6b5f8a;
+    --muted-light: #a095c0;
+    --text: #2a1a5e;
+    --green: #059669;
+    --red: #E53E3E;
+    --amber: #D69E2E;
+  }
+  body { font-family: 'Nunito', sans-serif; background: linear-gradient(135deg, var(--bg) 0%, #ede8f7 100%); min-height: 100vh; padding: 24px; color: var(--text); }
+  input, select, button, textarea { font-family: inherit; }
+  .card { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(75,42,142,0.07); }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 700; display: inline-block; }
+  .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 700; font-family: inherit; transition: all 0.15s; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-dark); }
+  .btn-outline { background: #fff; border: 1.5px solid var(--border); color: var(--muted); }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: #fff; border: 1.5px solid var(--red); color: var(--red); }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: right; padding: 8px; color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  th:first-child { text-align: left; }
+  td { padding: 8px; }
+  .overlay { position: fixed; inset: 0; background: rgba(42,26,94,0.45); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal { background: #fff; border-radius: 16px; padding: 24px; max-width: 600px; width: 100%; box-shadow: 0 8px 40px rgba(75,42,142,0.2); }
+  @media (max-width: 768px) {
+    body { padding: 12px; }
+    .header-controls { flex-direction: column; align-items: flex-start !important; }
+    .kpi-grid { grid-template-columns: 1fr 1fr !important; }
+    .gap-grid { grid-template-columns: 1fr !important; }
+    .edit-grid-4 { grid-template-columns: 1fr 1fr !important; }
+    .client-row-inner { flex-direction: column; align-items: flex-start !important; gap: 6px !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const MONTHS = ["Apr 2026","May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026","Jan 2027","Feb 2027","Mar 2027"];
+const SHORT = ["Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar"];
+const STATUSES = ["Active","Dropping","Prospect","New"];
+const TIERS = ["Clarity","Control","Confidence","Custom"];
+const SC = {
+  Active:   { bg:"#ede8f7", text:"#4b2a8e", dot:"#4b2a8e" },
+  Dropping: { bg:"#FDE8E8", text:"#9B1C1C", dot:"#E53E3E" },
+  Prospect: { bg:"#FEF3C7", text:"#92400E", dot:"#D69E2E" },
+  New:      { bg:"#D1FAE5", text:"#065F46", dot:"#059669" }
+};
+const KEY = "ppp-income-forecast-v1";
+
+const DEFAULTS = [
+  {id:1,  name:"Retail Co.",        tier:"Clarity",    monthly:499,  status:"Active",   startMonth:0, endMonth:11, notes:"Monthly bookkeeping"},
+  {id:2,  name:"Restaurant LLC",    tier:"Control",    monthly:995,  status:"Active",   startMonth:0, endMonth:11, notes:"Full-service bookkeeping"},
+  {id:3,  name:"Law Firm Group",    tier:"Confidence", monthly:2000, status:"Active",   startMonth:0, endMonth:11, notes:"Advisory + books"},
+  {id:4,  name:"Freelancer A",      tier:"Clarity",    monthly:299,  status:"Active",   startMonth:0, endMonth:11, notes:""},
+  {id:5,  name:"E-commerce Store",  tier:"Clarity",    monthly:399,  status:"Active",   startMonth:0, endMonth:11, notes:""},
+  {id:6,  name:"Contractor Co.",    tier:"Control",    monthly:750,  status:"Dropping", startMonth:0, endMonth:2,  notes:"Ending services"},
+  {id:7,  name:"Medical Office",    tier:"Confidence", monthly:2500, status:"Prospect", startMonth:1, endMonth:11, notes:"Proposal sent"},
+  {id:8,  name:"Consulting Firm",   tier:"Custom",     monthly:1500, status:"Prospect", startMonth:2, endMonth:11, notes:"Discovery call scheduled"},
+  {id:9,  name:"Non-Profit Org",    tier:"Clarity",    monthly:450,  status:"Active",   startMonth:0, endMonth:11, notes:""},
+  {id:10, name:"Trades Business",   tier:"Control",    monthly:850,  status:"New",      startMonth:0, endMonth:11, notes:"Onboarding in progress"},
+];
+
+let state = { clients: DEFAULTS, target: 15000, scenario: "best", view: "dashboard", editing: null, showExport: false, exportText: "" };
+let nextId = 11;
+
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY));
+    if (d && d.clients) {
+      state.clients = d.clients;
+      state.target = d.target || 15000;
+      state.scenario = d.scenario || "best";
+      nextId = Math.max(...d.clients.map(c => c.id)) + 1;
+    }
+  } catch(e) {}
+}
+
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify({ clients: state.clients, target: state.target, scenario: state.scenario })); } catch(e) {}
+}
+
+function fmt(n) { return "$" + Math.round(n).toLocaleString("en-US"); }
+
+function calcMonthly() {
+  const mult = state.scenario === "best" ? 1.0 : state.scenario === "worst" ? 0.7 : 0.85;
+  return MONTHS.map((m, mi) => {
+    let confirmed = 0, prospect = 0;
+    state.clients.forEach(c => {
+      if (mi >= c.startMonth && mi <= c.endMonth) {
+        if (c.status === "Active" || c.status === "New" || c.status === "Dropping") confirmed += c.monthly;
+        else if (c.status === "Prospect") prospect += c.monthly;
+      }
+    });
+    const total = confirmed + prospect * mult;
+    return { confirmed, prospect, total, gap: Math.max(0, state.target - total), month: m };
+  });
+}
+
+function render() {
+  const md = calcMonthly();
+  const annConf  = md.reduce((s,d) => s + d.confirmed, 0);
+  const annScen  = md.reduce((s,d) => s + d.total, 0);
+  const annTarget = state.target * 12;
+  const annGap   = Math.max(0, annTarget - annScen);
+  const avgGap   = annGap / 12;
+  const maxRev   = Math.max(...md.map(d => Math.max(d.total, state.target))) * 1.15;
+  const mult = state.scenario === "best" ? "100%" : state.scenario === "worst" ? "70%" : "85%";
+
+  /* ── HEADER ── */
+  let html = `
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px">
+    <div style="display:flex;align-items:center;gap:14px">
+      <img src="PPP-Logo_vertical.png" alt="Purposeful Profit Pro" style="height:90px;mix-blend-mode:multiply">
+      <div>
+        <div style="font-size:30px;font-weight:800;color:var(--primary);letter-spacing:-0.5px">Clarity Dashboard</div>
+        <div style="font-size:17px;color:var(--muted);font-weight:700;margin-top:2px">Income Planning</div>
+      </div>
+    </div>
+    <div class="header-controls" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-outline" style="font-size:11px;padding:6px 12px" onclick="resetAll()">Reset</button>
+      <button class="btn btn-outline" style="font-size:11px;padding:6px 12px;background:var(--bg)" onclick="exportData()">Export CSV</button>
+      <div style="display:flex;gap:4px;background:var(--bg);border-radius:10px;padding:4px;border:1.5px solid var(--border)">
+        ${["dashboard","clients","chart"].map(v =>
+          `<button onclick="setView('${v}')"
+            style="padding:7px 15px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:700;font-family:inherit;
+                   background:${state.view===v ? 'var(--primary)' : 'transparent'};
+                   color:${state.view===v ? '#fff' : 'var(--muted)'}">
+            ${v==="dashboard" ? "Dashboard" : v==="clients" ? "Clients" : "Timeline"}
+          </button>`).join("")}
+      </div>
+    </div>
+  </div>
+
+  <!-- Target + Scenario -->
+  <div style="display:flex;gap:14px;margin-bottom:22px;flex-wrap:wrap">
+    <div class="card" style="flex:1;min-width:220px;padding:16px 20px;border-left:4px solid var(--primary)">
+      <div class="label">Monthly Target</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+        <span style="font-size:22px;font-weight:800;color:var(--primary)">$</span>
+        <input type="number" value="${state.target}" onchange="setTarget(this.value)"
+          style="font-size:22px;font-weight:800;color:var(--primary);border:none;background:transparent;width:130px;font-family:inherit;outline:none">
+      </div>
+    </div>
+    <div class="card" style="flex:2;min-width:260px;padding:16px 20px;border-left:4px solid var(--accent)">
+      <div class="label">Prospect Conversion Scenario</div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        ${[["best","Best (100%)"],["likely","Likely (85%)"],["worst","Conservative (70%)"]].map(([k,l]) =>
+          `<button onclick="setScenario('${k}')"
+            style="padding:6px 14px;border-radius:8px;border:2px solid ${state.scenario===k ? 'var(--primary)' : 'var(--border)'};
+                   cursor:pointer;font-size:13px;font-weight:700;font-family:inherit;
+                   background:${state.scenario===k ? 'var(--bg)' : '#fff'};
+                   color:${state.scenario===k ? 'var(--primary)' : 'var(--muted)'}">${l}</button>`).join("")}
+      </div>
+    </div>
+  </div>`;
+
+  /* ── DASHBOARD ── */
+  if (state.view === "dashboard") {
+    const kpis = [
+      { label:"Annual Confirmed", value:fmt(annConf),  sub:"Locked-in revenue",           color:"var(--primary)" },
+      { label:"Annual Scenario",  value:fmt(annScen),  sub:`Prospects at ${mult}`,         color:"var(--accent)" },
+      { label:"Annual Target",    value:fmt(annTarget), sub:`${fmt(state.target)}/mo × 12`, color:"var(--muted)" },
+      { label:"Annual Gap",       value:annGap>0 ? fmt(annGap) : "On Track ✓",
+        sub: annGap>0 ? `~${fmt(avgGap)}/mo needed` : "Target met!",
+        color: annGap>0 ? "var(--red)" : "var(--green)" },
+    ];
+    html += `<div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:22px">
+      ${kpis.map(k => `<div class="card" style="border-left:4px solid ${k.color};padding:18px">
+        <div class="label" style="margin-bottom:6px">${k.label}</div>
+        <div style="font-size:24px;font-weight:800;color:${k.color}">${k.value}</div>
+        <div style="font-size:12px;color:var(--muted-light);margin-top:2px;font-weight:600">${k.sub}</div>
+      </div>`).join("")}
+    </div>`;
+
+    const dropping  = state.clients.filter(c => c.status === "Dropping");
+    const prospects = state.clients.filter(c => c.status === "Prospect");
+    html += `<div class="card" style="margin-bottom:22px">
+      <h3 style="font-size:15px;font-weight:800;color:var(--primary);margin:0 0 14px">Gap Analysis</h3>
+      <div class="gap-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+        <div>
+          <div class="label" style="margin-bottom:8px">Clients Dropping</div>
+          ${dropping.map(c => `<div style="display:flex;justify-content:space-between;padding:8px 12px;background:#FDE8E8;border-radius:8px;margin-bottom:6px">
+            <span style="font-size:13px;color:#9B1C1C;font-weight:700">${c.name}</span>
+            <span style="font-size:13px;color:#9B1C1C;font-weight:700">-${fmt(c.monthly)}/mo</span>
+          </div>`).join("") || '<div style="font-size:13px;color:var(--muted-light);padding:8px;font-weight:600">No clients currently dropping</div>'}
+          <div style="margin-top:8px;padding:8px 12px;background:#FDE8E8;border-radius:8px;font-weight:700;font-size:13px;color:#9B1C1C;text-align:right">
+            Total lost: -${fmt(dropping.reduce((s,c) => s + c.monthly, 0))}/mo
+          </div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:8px">Prospects in Pipeline</div>
+          ${prospects.map(c => `<div style="display:flex;justify-content:space-between;padding:8px 12px;background:#FEF3C7;border-radius:8px;margin-bottom:6px">
+            <span style="font-size:13px;color:#92400E;font-weight:700">${c.name}</span>
+            <span style="font-size:13px;color:#92400E;font-weight:700">+${fmt(c.monthly)}/mo</span>
+          </div>`).join("") || '<div style="font-size:13px;color:var(--muted-light);padding:8px;font-weight:600">No prospects in pipeline</div>'}
+          <div style="margin-top:8px;padding:8px 12px;background:#FEF3C7;border-radius:8px;font-weight:700;font-size:13px;color:#92400E;text-align:right">
+            Potential: +${fmt(prospects.reduce((s,c) => s + c.monthly, 0))}/mo
+          </div>
+        </div>
+      </div>
+      ${avgGap > 0 ? `<div style="margin-top:16px;padding:14px;background:var(--bg);border-radius:10px;border:1.5px solid var(--border)">
+        <div style="font-size:13px;font-weight:700;color:var(--primary)">To close the gap of ${fmt(avgGap)}/mo, you could add:</div>
+        <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap">
+          ${[[795,"Clarity"],[1295,"Control"],[2495,"Confidence"]].map(([p,t]) =>
+            `<div style="font-size:13px;color:var(--accent);background:#fff;padding:8px 14px;border-radius:8px;border:1.5px solid var(--border);font-weight:700">
+              <strong>${Math.ceil(avgGap/p)}</strong> ${t} @ ${fmt(p)}/mo
+            </div>`).join("")}
+        </div>
+      </div>` : ""}
+    </div>`;
+
+    html += `<div class="card" style="overflow-x:auto">
+      <h3 style="font-size:15px;font-weight:800;color:var(--primary);margin:0 0 14px">Monthly Revenue Breakdown</h3>
+      <table><thead><tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:left">Month</th><th>Confirmed</th><th>Prospects</th><th>Scenario Total</th><th>Target</th><th>Gap</th>
+      </tr></thead><tbody>
+      ${md.map(d => `<tr style="border-bottom:1px solid var(--bg)">
+        <td style="font-weight:700">${d.month}</td>
+        <td style="text-align:right;font-weight:600">${fmt(d.confirmed)}</td>
+        <td style="text-align:right;color:var(--amber);font-weight:600">${fmt(d.prospect)}</td>
+        <td style="text-align:right;font-weight:800;color:var(--primary)">${fmt(d.total)}</td>
+        <td style="text-align:right;color:var(--muted);font-weight:600">${fmt(state.target)}</td>
+        <td style="text-align:right;font-weight:800;color:${d.gap > 0 ? 'var(--red)' : 'var(--green)'}">
+          ${d.gap > 0 ? fmt(d.gap) : '✓ On Track'}
+        </td>
+      </tr>`).join("")}
+      </tbody></table>
+    </div>`;
+  }
+
+  /* ── CLIENT LIST ── */
+  if (state.view === "clients") {
+    html += `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="font-size:15px;font-weight:800;color:var(--primary)">Client Roster (${state.clients.length})</h3>
+        <button class="btn btn-primary" onclick="addClient()">+ Add Client</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+      ${state.clients.map(c => {
+        if (state.editing === c.id) {
+          return `<div style="border:2px solid var(--primary);border-radius:10px;padding:16px;background:var(--bg)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div><div class="label">Name</div>
+                <input value="${c.name}" onchange="updateClient(${c.id},'name',this.value)"
+                  style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-weight:600;outline:none;font-family:inherit">
+              </div>
+              <div><div class="label">Monthly ($)</div>
+                <input type="number" value="${c.monthly}" onchange="updateClient(${c.id},'monthly',Number(this.value))"
+                  style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-weight:600;outline:none;font-family:inherit">
+              </div>
+            </div>
+            <div class="edit-grid-4" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-top:10px">
+              <div><div class="label">Status</div>
+                <select onchange="updateClient(${c.id},'status',this.value)"
+                  style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:#fff;outline:none;font-family:inherit;font-weight:600">
+                  ${STATUSES.map(s => `<option ${s===c.status?'selected':''}>${s}</option>`).join("")}
+                </select>
+              </div>
+              <div><div class="label">Tier</div>
+                <select onchange="updateClient(${c.id},'tier',this.value)"
+                  style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:#fff;outline:none;font-family:inherit;font-weight:600">
+                  ${TIERS.map(t => `<option ${t===c.tier?'selected':''}>${t}</option>`).join("")}
+                </select>
+              </div>
+              <div><div class="label">Start Month</div>
+                <select onchange="updateClient(${c.id},'startMonth',Number(this.value))"
+                  style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:#fff;outline:none;font-family:inherit;font-weight:600">
+                  ${MONTHS.map((m,i) => `<option value="${i}" ${i===c.startMonth?'selected':''}>${m}</option>`).join("")}
+                </select>
+              </div>
+              <div><div class="label">End Month</div>
+                <select onchange="updateClient(${c.id},'endMonth',Number(this.value))"
+                  style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:#fff;outline:none;font-family:inherit;font-weight:600">
+                  ${MONTHS.map((m,i) => `<option value="${i}" ${i===c.endMonth?'selected':''}>${m}</option>`).join("")}
+                </select>
+              </div>
+            </div>
+            <div style="margin-top:10px"><div class="label">Notes</div>
+              <input value="${c.notes}" onchange="updateClient(${c.id},'notes',this.value)"
+                style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;outline:none;font-family:inherit;font-weight:600">
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="state.editing=null;save();render()">Done</button>
+              <button class="btn btn-danger" style="font-size:12px;padding:6px 14px" onclick="removeClient(${c.id})">Remove</button>
+            </div>
+          </div>`;
+        }
+        const sc = SC[c.status] || { bg:"var(--bg)", text:"var(--primary)", dot:"var(--accent)" };
+        return `<div style="border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;cursor:pointer;background:#fff;transition:border-color 0.15s"
+          onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'"
+          onclick="state.editing=${c.id};render()">
+          <div class="client-row-inner" style="display:flex;align-items:center;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <div style="width:8px;height:8px;border-radius:50%;background:${sc.dot}"></div>
+              <span style="font-weight:700;font-size:14px;color:var(--text)">${c.name}</span>
+              <span class="pill" style="background:${sc.bg};color:${sc.text}">${c.status}</span>
+              <span class="pill" style="background:var(--bg);color:var(--accent)">${c.tier}</span>
+              ${c.notes ? `<span style="font-size:12px;color:var(--muted-light);font-weight:600">${c.notes}</span>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex-shrink:0">
+              <span style="font-size:14px;font-weight:800;color:var(--primary)">${fmt(c.monthly)}/mo</span>
+              <span style="font-size:11px;color:var(--muted-light);font-weight:600">${SHORT[c.startMonth]}${c.endMonth<11?' – '+SHORT[c.endMonth]:'+'}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join("")}
+      </div>
+    </div>`;
+  }
+
+  /* ── TIMELINE CHART ── */
+  if (state.view === "chart") {
+    const bars = md.map((d,i) => {
+      const confH  = (d.confirmed / maxRev) * 100;
+      const prospH = ((d.total - d.confirmed) / maxRev) * 100;
+      return `<div style="flex:1;display:flex;flex-direction:column;align-items:center">
+        <div style="width:100%;max-width:42px;display:flex;flex-direction:column;justify-content:flex-end;height:320px">
+          ${prospH > 0
+            ? `<div style="height:${prospH*3.2}px;background:repeating-linear-gradient(45deg,#D69E2E22,#D69E2E22 4px,#D69E2E44 4px,#D69E2E44 8px);border-radius:4px 4px 0 0;border-bottom:1px dashed #D69E2E"></div>`
+            : ''}
+          <div style="height:${confH*3.2}px;background:linear-gradient(180deg,#7857be,#4b2a8e);border-radius:${prospH>0?'0 0 4px 4px':'4px 4px 4px 4px'}"></div>
+        </div>
+        <span style="font-size:10px;color:var(--muted);margin-top:6px;font-weight:700">${SHORT[i]}</span>
+      </div>`;
+    }).join("");
+
+    const targetTop = (1 - state.target / maxRev) * 320;
+    const yLabels = [0,0.25,0.5,0.75,1].map(p => {
+      const v = Math.round(maxRev * (1-p));
+      return `<div style="position:absolute;left:0;top:${p*100}%;width:100%;display:flex;align-items:center">
+        <span style="font-size:10px;color:var(--muted-light);width:56px;text-align:right;padding-right:8px;font-weight:600">${fmt(v)}</span>
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+      </div>`;
+    }).join("");
+
+    html += `<div class="card">
+      <h3 style="font-size:15px;font-weight:800;color:var(--primary);margin:0 0 20px">Revenue Timeline</h3>
+      <div style="position:relative;height:380px;margin-bottom:8px">
+        <div style="position:absolute;inset:0">${yLabels}</div>
+        <div style="position:absolute;left:64px;right:0;top:${targetTop}px;height:2px;background:var(--red);opacity:0.5;z-index:2">
+          <span style="position:absolute;right:0;top:-18px;font-size:10px;color:var(--red);font-weight:700">Target</span>
+        </div>
+        <div style="position:absolute;left:64px;right:0;top:0;height:320px;display:flex;align-items:flex-end;gap:4px;padding:0 4px">
+          ${bars}
+        </div>
+      </div>
+      <div style="display:flex;gap:20px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:14px;height:14px;border-radius:3px;background:linear-gradient(180deg,#7857be,#4b2a8e)"></div>
+          <span style="font-size:12px;color:var(--accent);font-weight:700">Confirmed</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:14px;height:14px;border-radius:3px;background:repeating-linear-gradient(45deg,#D69E2E22,#D69E2E22 3px,#D69E2E44 3px,#D69E2E44 6px)"></div>
+          <span style="font-size:12px;color:#92400E;font-weight:700">Prospects (${state.scenario})</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:14px;height:2px;background:var(--red)"></div>
+          <span style="font-size:12px;color:var(--red);font-weight:700">Monthly Target</span>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* ── CTA ── */
+  html += `
+  <div style="text-align:center;margin-top:28px;padding:20px;background:#fff;border-radius:14px;border:1.5px solid var(--border)">
+    <div style="font-size:14px;color:var(--muted);font-weight:600;margin-bottom:10px">Want help building a revenue plan that actually works?</div>
+    <a href="https://link.bookkeeper.net/widget/booking/1dkQm7SYcghsm6lQFkIk"
+      style="display:inline-block;padding:12px 28px;background:var(--primary);color:#fff;border-radius:10px;font-weight:800;font-size:14px;text-decoration:none;letter-spacing:0.3px;transition:background 0.15s"
+      onmouseover="this.style.background='#3d1e78'" onmouseout="this.style.background='var(--primary)'">
+      📅 Get Expert Guidance
+    </a>
+    <div style="font-size:11px;color:var(--muted-light);margin-top:10px;font-weight:600">Purposeful Profit Pro · purposefulprofitpro.com</div>
+  </div>`;
+
+  /* ── EXPORT MODAL ── */
+  if (state.showExport) {
+    html += `<div class="overlay" onclick="state.showExport=false;render()">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="font-size:16px;font-weight:800;color:var(--primary)">Export to Spreadsheet</h3>
+          <button onclick="state.showExport=false;render()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin:0 0 12px;font-weight:600">Select all → Copy → Paste into Excel or Google Sheets.</p>
+        <textarea id="export-ta" readonly onfocus="this.select()"
+          style="width:100%;height:200px;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;font-family:monospace;color:var(--text);background:var(--bg);resize:vertical;outline:none">${state.exportText}</textarea>
+        <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+          <button class="btn btn-primary" onclick="document.getElementById('export-ta').select();document.execCommand('copy')">Copy to Clipboard</button>
+          <button class="btn btn-outline" onclick="state.showExport=false;render()">Close</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  document.getElementById("app").innerHTML = html;
+}
+
+function setView(v)     { state.view = v; state.editing = null; render(); }
+function setTarget(v)   { state.target = Number(v); save(); render(); }
+function setScenario(s) { state.scenario = s; save(); render(); }
+
+function updateClient(id, field, value) {
+  const c = state.clients.find(c => c.id === id);
+  if (c) { c[field] = value; save(); render(); }
+}
+
+function addClient() {
+  state.clients.push({ id: nextId++, name: "New Client", tier: "Clarity", monthly: 500, status: "Prospect", startMonth: 0, endMonth: 11, notes: "" });
+  state.editing = nextId - 1;
+  save(); render();
+}
+
+function removeClient(id) {
+  state.clients = state.clients.filter(c => c.id !== id);
+  if (state.editing === id) state.editing = null;
+  save(); render();
+}
+
+function resetAll() {
+  if (!confirm("Reset all data to defaults? Your saved data will be cleared.")) return;
+  localStorage.removeItem(KEY);
+  state.clients = JSON.parse(JSON.stringify(DEFAULTS));
+  state.target = 15000; state.scenario = "best"; state.editing = null; nextId = 11;
+  render();
+}
+
+function exportData() {
+  const header = ["Name","Tier","Monthly","Status","Start Month","End Month","Notes"].join("\t");
+  const rows = state.clients.map(c =>
+    [c.name, c.tier, c.monthly, c.status, MONTHS[c.startMonth], MONTHS[c.endMonth], c.notes].join("\t")
+  );
+  const wt = state.scenario === "best" ? "100%" : state.scenario === "worst" ? "70%" : "85%";
+  state.exportText = header + "\n" + rows.join("\n")
+    + "\n\nSettings\nMonthly Target\t$" + state.target
+    + "\nProspect Scenario\t" + state.scenario + " (" + wt + ")";
+  state.showExport = true;
+  render();
+}
+
+load();
+render();
+</script>
+</body>
+</html>
